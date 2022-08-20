@@ -2,13 +2,14 @@ use reqwest::header::{self, HeaderMap};
 use serde::Deserialize;
 use serde_json::Value as JSON;
 use std::{
+    error::Error,
     fs, io,
     path::{self, Path, PathBuf},
 };
 
 fn gen_headers(conf: &Config) -> HeaderMap {
     let mut headers = header::HeaderMap::new();
-    let mut auth = format!("Bearer {}", conf.grafana_token);
+    let auth = format!("Bearer {}", conf.grafana_token);
     headers.append(header::AUTHORIZATION, auth.parse().unwrap());
     headers
 }
@@ -46,13 +47,12 @@ fn prep_fs(data_dir: &Path, folders_dir: &Path) {
     }
 }
 #[tokio::main]
-async fn main() {
-    let config: Config = envy::from_env().unwrap();
+async fn main() -> Result<(), Box<dyn Error>> {
+    let config: Config = envy::from_env()?;
     let headers = gen_headers(&config);
     let client = reqwest::Client::builder()
         .default_headers(headers)
-        .build()
-        .unwrap();
+        .build()?;
     let summaries = search_dashboards(&client, &config).await;
     let mut dashboards = Vec::new();
 
@@ -62,9 +62,10 @@ async fn main() {
     for summary in &summaries {
         let json = get_dashboard(&summary.uid, &client, &config).await;
         let dashboard = Dashboard::new(summary, json);
-        dashboard.store(data_dir, folders_dir).await;
+        dashboard.store(data_dir).await?.link(folders_dir).await?;
         dashboards.push(dashboard);
     }
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -77,42 +78,15 @@ struct Dashboard<'a> {
     summary: &'a DashSummary,
     json: JSON,
 }
-// struct DashName<'a>(&'a str);
+struct StoredDashboard<'a>(PathBuf, &'a Dashboard<'a>);
+
 impl<'a> Dashboard<'a> {
-    async fn store(&self, data_dir: &Path, folders_dir: &Path) {
+    async fn store(&'a self, data_dir: &'a Path) -> io::Result<StoredDashboard<'a>> {
         let data_file = data_dir.join(self.summary.uid.to_string());
-        let data = serde_json::to_string_pretty(&self.json).unwrap();
-        fs::write(data_file.clone(), data).expect("could not write dashboard data to file");
-        let folder_name = match &self.summary.folder_title {
-            Some(name) => name.replace("/", "_"),
-            None => "General".into(),
-        };
-
-        let dashboard_folder = folders_dir.join(folder_name);
-        if !dashboard_folder.exists() {
-            fs::create_dir(&dashboard_folder).unwrap();
-        }
-        let dashboard_link = dashboard_folder.join(
-            self.json["title"]
-                .to_string()
-                .replace("/", "_")
-                .trim_matches('"'),
-        );
-        let mut link_target = PathBuf::from("../../");
-        link_target.push(data_file);
-
-        if let Err(err) = fs::remove_file(&dashboard_link) {
-            match err.kind() {
-                io::ErrorKind::NotFound => {}
-                _ => Err(err).unwrap(),
-            }
-        }
-
-        std::os::unix::fs::symlink(&link_target, &dashboard_link).expect(&format!(
-            "could not create symlink for dashboard \"{}\" -> \"{}\"",
-            dashboard_link.to_str().unwrap(),
-            link_target.to_str().unwrap()
-        ));
+        let data = serde_json::to_string_pretty(&self.json)
+            .expect("unexpected serialization error, this should serialize a decerialized JSON");
+        fs::write(data_file.clone(), data)?;
+        Ok(StoredDashboard(data_file, self))
     }
 
     fn new(summary: &'a DashSummary, json: JSON) -> Dashboard {
@@ -126,6 +100,39 @@ impl<'a> Dashboard<'a> {
                 json: json["dashboard"].clone(),
             },
         }
+    }
+}
+
+impl<'a> StoredDashboard<'a> {
+    async fn link(&self, folders_dir: &Path) -> io::Result<()> {
+        let StoredDashboard(data_file, dashboard) = self;
+        let folder_name = match &dashboard.summary.folder_title {
+            Some(name) => name.replace("/", "_"),
+            None => "General".into(),
+        };
+
+        let dashboard_folder = folders_dir.join(folder_name);
+        if !dashboard_folder.exists() {
+            fs::create_dir(&dashboard_folder)?;
+        }
+        let dashboard_link = dashboard_folder.join(
+            dashboard.json["title"]
+                .to_string()
+                .replace("/", "_")
+                .trim_matches('"'),
+        );
+        let mut link_target = PathBuf::from("../../");
+        link_target.push(data_file);
+
+        if let Err(err) = fs::remove_file(&dashboard_link) {
+            match err.kind() {
+                io::ErrorKind::NotFound => {}
+                _ => return Err(err),
+            }
+        }
+
+        std::os::unix::fs::symlink(&link_target, &dashboard_link)?;
+        Ok(())
     }
 }
 
