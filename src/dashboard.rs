@@ -1,3 +1,4 @@
+use color_eyre::Result;
 use serde::Deserialize;
 use serde_json::Value as JSON;
 use std::path::{Path, PathBuf};
@@ -18,17 +19,17 @@ pub struct Dashboard<'a> {
 pub struct StoredDashboard<'a>(PathBuf, &'a Dashboard<'a>);
 
 impl<'a> Dashboard<'a> {
-    pub fn store(&'a self, data_dir: &'a Path) -> io::Result<StoredDashboard<'a>> {
-        let data_file = data_dir.join(self.summary.uid.to_string());
-        let data = serde_json::to_string_pretty(&self.json)
-            .expect("unexpected serialization error, this should serialize a decerialized JSON");
+    pub fn store(&'a self, data_dir: &'a Path) -> Result<StoredDashboard<'a>> {
+        let data_file = data_dir.join(&self.summary.uid);
+        let data = serde_json::to_string_pretty(&self.json)?;
+
         fs::write(data_file.clone(), data)?;
         Ok(StoredDashboard(data_file, self))
     }
 
-    pub fn build(summary: &'a DashSummary, json: JSON) -> Result<Dashboard, &'static str> {
+    pub fn build(summary: &'a DashSummary, json: JSON) -> color_eyre::Result<Dashboard> {
         if json["dashboard"] == JSON::Null && json["title"] == JSON::Null {
-            return Err("wrong dashboard json format");
+            return Err(color_eyre::eyre::eyre!("Unfamiliar dashboard format"));
         }
         let dashboard = match json["dashboard"] {
             JSON::Null => Dashboard { summary, json },
@@ -45,7 +46,7 @@ impl<'a> StoredDashboard<'a> {
     pub fn link(&self, folders_dir: &Path) -> io::Result<()> {
         let StoredDashboard(data_file, dashboard) = self;
         let folder_name = match &dashboard.summary.folder_title {
-            Some(name) => name.replace("/", "_"),
+            Some(name) => name.replace('/', "_"),
             None => "General".into(),
         };
 
@@ -56,7 +57,7 @@ impl<'a> StoredDashboard<'a> {
         let dashboard_link = dashboard_folder.join(
             dashboard.json["title"]
                 .to_string()
-                .replace("/", "_")
+                .replace('/', "_")
                 .trim_matches('"'),
         );
         let mut link_target = PathBuf::from("../../");

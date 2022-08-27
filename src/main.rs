@@ -1,3 +1,7 @@
+#![warn(
+    clippy::unwrap_used,
+    clippy::expect_used
+)]
 use reqwest::header::{self, HeaderMap};
 use std::process;
 
