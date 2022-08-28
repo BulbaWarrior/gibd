@@ -2,10 +2,10 @@
 use color_eyre::Result;
 use reqwest::header::{self, HeaderMap};
 
-use grafana_backup::{run, Config};
+use grafana_backup::{run, config};
 
 fn gen_headers(
-    conf: &Config,
+    conf: &config::Env,
 ) -> core::result::Result<HeaderMap, reqwest::header::InvalidHeaderValue> {
     let mut headers = header::HeaderMap::new();
     let auth = format!("Bearer {}", conf.grafana_token);
@@ -16,7 +16,7 @@ fn gen_headers(
 #[tokio::main]
 async fn main() -> Result<()> {
     color_eyre::install()?;
-    let config: Config = envy::from_env()?;
+    let config: config::Env = envy::from_env()?;
 
     let headers = gen_headers(&config)?;
     let client = reqwest::Client::builder()
