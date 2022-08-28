@@ -3,7 +3,7 @@ use clap::Parser;
 use color_eyre::Result;
 use reqwest::header::{self, HeaderMap};
 
-use grafana_backup::{config, run};
+use gibd::{config, run};
 
 fn gen_headers(
     conf: &config::Env,
