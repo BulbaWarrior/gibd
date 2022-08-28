@@ -1,36 +1,28 @@
-#![warn(
-    clippy::unwrap_used,
-    clippy::expect_used
-)]
+#![warn(clippy::unwrap_used, clippy::expect_used)]
+use color_eyre::Result;
 use reqwest::header::{self, HeaderMap};
-use std::process;
 
 use grafana_backup::{run, Config};
 
-fn gen_headers(conf: &Config) -> HeaderMap {
+fn gen_headers(
+    conf: &Config,
+) -> core::result::Result<HeaderMap, reqwest::header::InvalidHeaderValue> {
     let mut headers = header::HeaderMap::new();
     let auth = format!("Bearer {}", conf.grafana_token);
-    headers.append(header::AUTHORIZATION, auth.parse().unwrap());
-    headers
+    headers.append(header::AUTHORIZATION, auth.parse()?);
+    Ok(headers)
 }
 
 #[tokio::main]
-async fn main() {
-    let config: Config = envy::from_env().unwrap_or_else(|e| {
-        println!("configuration error: {e}");
-        process::exit(1);
-    });
+async fn main() -> Result<()> {
+    color_eyre::install()?;
+    let config: Config = envy::from_env()?;
 
-    let headers = gen_headers(&config);
+    let headers = gen_headers(&config)?;
     let client = reqwest::Client::builder()
         .default_headers(headers)
-        .build()
-        .unwrap_or_else(|e| {
-            println!("http client initialization error: {e}");
-            process::exit(1);
-        });
+        .build()?;
 
-    if let Err(e) = run(&config, &client).await {
-        println!("backup error: {e}");
-    }
+    run(&config, &client).await?;
+    Ok(())
 }
