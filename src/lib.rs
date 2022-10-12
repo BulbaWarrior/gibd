@@ -1,5 +1,5 @@
 #![warn(clippy::unwrap_used, clippy::expect_used)]
-use color_eyre::Result;
+use color_eyre::{Report, Result};
 use std::{
     fs,
     path::{self, Path},
@@ -21,17 +21,20 @@ fn prep_fs(data_dir: &Path, folders_dir: &Path) -> Result<()> {
     }
     Ok(())
 }
-
 pub async fn run(config: &config::Args, client: &reqwest::Client) -> Result<()> {
     let summaries = search_dashboards(client, &config.grafana_url).await?;
 
     let data_dir = path::Path::new("data");
     let folders_dir = path::Path::new("folders");
     prep_fs(data_dir, folders_dir)?;
-    for summary in &summaries {
+    let tasks = summaries.iter().map(|summary| async {
         let json = get_dashboard(&summary.uid, client, &config.grafana_url).await?;
         let dashboard = Dashboard::build(summary, json)?;
         dashboard.store(data_dir)?.link(folders_dir)?;
-    }
+        Ok::<(), Report>(())
+    });
+    let results: Vec<Result<()>> = futures::future::join_all(tasks).await;
+    results.into_iter().collect::<Result<Vec<()>>>()?;
+
     Ok(())
 }
