@@ -25,6 +25,6 @@ async fn main() -> Result<()> {
         .default_headers(headers)
         .build()?;
 
-    run(&args, &client).await?;
+    run(args, client).await?;
     Ok(())
 }
