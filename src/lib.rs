@@ -37,7 +37,7 @@ pub async fn run(config: config::Args, client: reqwest::Client) -> Result<()> {
         let handle = tokio::spawn(async move {
             let json = get_dashboard(&summary.uid, &client, &config.grafana_url).await?;
             let dashboard = Dashboard::build(&summary, json)?;
-            dashboard.store(data_dir)?.link(folders_dir)?;
+            dashboard.store(data_dir).await?.link(folders_dir).await?;
             Ok::<(), Report>(())
         });
         handles.push(handle);

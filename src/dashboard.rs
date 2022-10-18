@@ -2,7 +2,8 @@ use color_eyre::Result;
 use serde::Deserialize;
 use serde_json::Value as JSON;
 use std::path::{Path, PathBuf};
-use std::{fs, io};
+// use std::{fs, io};
+use tokio::{fs, io};
 
 #[derive(Deserialize, Debug)]
 pub struct DashSummary {
@@ -19,11 +20,11 @@ pub struct Dashboard<'a> {
 pub struct StoredDashboard<'a>(PathBuf, &'a Dashboard<'a>);
 
 impl<'a> Dashboard<'a> {
-    pub fn store(&'a self, data_dir: &'a Path) -> Result<StoredDashboard<'a>> {
+    pub async fn store(&'a self, data_dir: &'a Path) -> Result<StoredDashboard<'a>> {
         let data_file = data_dir.join(&self.summary.uid);
         let data = serde_json::to_string_pretty(&self.json)?;
 
-        fs::write(data_file.clone(), data)?;
+        fs::write(data_file.clone(), data).await?;
         Ok(StoredDashboard(data_file, self))
     }
 
@@ -43,7 +44,7 @@ impl<'a> Dashboard<'a> {
 }
 
 impl<'a> StoredDashboard<'a> {
-    pub fn link(&self, folders_dir: &Path) -> io::Result<()> {
+    pub async fn link(&self, folders_dir: &Path) -> io::Result<()> {
         let StoredDashboard(data_file, dashboard) = self;
         let folder_name = match &dashboard.summary.folder_title {
             Some(name) => name.replace('/', "_"),
@@ -52,7 +53,7 @@ impl<'a> StoredDashboard<'a> {
 
         let dashboard_folder = folders_dir.join(folder_name);
         if !dashboard_folder.exists() {
-            fs::create_dir(&dashboard_folder)?;
+            fs::create_dir(&dashboard_folder).await?;
         }
         let dashboard_link = dashboard_folder.join(
             dashboard.json["title"]
@@ -63,7 +64,7 @@ impl<'a> StoredDashboard<'a> {
         let mut link_target = PathBuf::from("../../");
         link_target.push(data_file);
 
-        if let Err(err) = fs::remove_file(&dashboard_link) {
+        if let Err(err) = fs::remove_file(&dashboard_link).await {
             match err.kind() {
                 io::ErrorKind::NotFound => {}
                 _ => return Err(err),
