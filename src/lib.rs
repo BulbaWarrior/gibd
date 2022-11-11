@@ -1,7 +1,9 @@
 #![warn(clippy::unwrap_used, clippy::expect_used)]
 use color_eyre::{Report, Result};
+use futures::{stream::FuturesUnordered, StreamExt, TryStreamExt};
 use std::{
     fs,
+    iter::FromIterator,
     path::{self, Path},
     sync::Arc,
 };
@@ -25,29 +27,24 @@ fn prep_fs(data_dir: &Path, folders_dir: &Path) -> Result<()> {
 pub async fn run(config: config::Args, client: reqwest::Client) -> Result<()> {
     let config = Arc::new(config);
     let client = Arc::new(client);
-    let summaries = search_dashboards(&client, &config.grafana_url).await?;
     let data_dir = path::Path::new("data");
     let folders_dir = path::Path::new("folders");
     prep_fs(data_dir, folders_dir)?;
-    let mut handles: Vec<_> = Vec::new();
 
-    for summary in summaries {
+    let summaries = search_dashboards(&client, &config.grafana_url).await?;
+    let results_futures = summaries.into_iter().map(|summary| {
         let config = Arc::clone(&config);
         let client = Arc::clone(&client);
-        let handle = tokio::spawn(async move {
+        async move {
             let json = get_dashboard(&summary.uid, &client, &config.grafana_url).await?;
             let dashboard = Dashboard::build(&summary, json)?;
             dashboard.store(data_dir).await?.link(folders_dir).await?;
             Ok::<(), Report>(())
-        });
-        handles.push(handle);
-    }
-
-    let mut results: Vec<Result<()>> = Vec::new();
-    for handle in handles {
-        results.push(handle.await?);
-    }
-    results.into_iter().collect::<Result<Vec<()>>>()?;
+        }
+    });
+    let results: Vec<_> = FuturesUnordered::from_iter(results_futures).collect().await;
+    let result: Result<Vec<()>> = results.into_iter().collect();
+    result?;
 
     Ok(())
 }
