@@ -1,4 +1,6 @@
 #![warn(clippy::unwrap_used, clippy::expect_used)]
+use std::time::Duration;
+
 use clap::Parser;
 use color_eyre::Result;
 use reqwest::header::{self, HeaderMap};
@@ -23,6 +25,7 @@ async fn main() -> Result<()> {
     let headers = gen_headers(&env)?;
     let client = reqwest::Client::builder()
         .default_headers(headers)
+        .connect_timeout(Duration::new(3, 0))
         .build()?;
 
     run(args, client).await?;
